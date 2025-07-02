@@ -1,0 +1,15 @@
+slli x2,x2,5
+lui x7,17253
+auipc x8,12365
+jal x1,fun1
+addi x5,x6,1
+lb x7,0(x9)
+sb x7,16(x3)
+ori x2,x5,3
+srli x3,x7,9
+add x7,x6,x2
+beq x0,x0,exit
+fun1:
+addi x9,x6,3
+jalr x0,x1,0
+exit:
