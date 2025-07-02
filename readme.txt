@@ -1,83 +1,173 @@
-1071536 Project1 assembler readme
+# RISC-V Assembly to Machine Code Translator
 
-在執行程式前請確保資料夾底下包含以下txt檔:
-	1.instruction_set.txt:
-		內容為一個instruction type(add,addi...)、一個type的編號(1~6)以及一個對應32bits的數字(rd,rs1,rs2,imm預設0)
-		type編號的不同會使不同的instruction丟入不同的function處理，下面會有更詳細的說明
-		32bits的數字則是一個模板，執行時會陸續算出instruction的rd,rs1,rs2,imm....在通過or的方式得到machine code
-		Ex:and: funct7:0000000 ,rs2 = 0 , rs1 = 0 ,  funct3:111 , rd = 0 , opcode = 0110011
-		   and x3,x4,x5;  =>rs1 = 00100 , rs2 = 00101 , rd = 00011
-		   and 6 00000000000000000111000000110011(模板)
-		     or) 00000000010100100000000110000000
-		---------------------------------------------
-			 00000000010100100111000110110011
-	2.register.txt:
-		內容為一個欲使用的register名稱對應一個register的編號
-		Ex:x0 0
-		   x1 1
-		目前附加檔案已包含rars中的所有可能(x0,x1,a0,t0,s0....)
-	3.riscv_code.txt:
-		此檔案的內容為使用者自行輸入，內容為欲轉換成machine code的risc V code
-		格式為一個在rars上可執行的code，且符合以下條件:
-			1.如欲在instruction前加label，則使用label後+冒號+" "(一個空格)+instruction
-				Ex:loop: addi x2,x5,16
-			2.如每個label單獨佔一行則為label+冒號(後面不可以有任何空格)
-				Ex:loop:
-				   addi x2,x5,16是
-			3.每個instruction輸入格式為
-				 i.運算元和第一個register中間有空格
-				ii.之後都不能有空格(用逗號隔開)
-				Ex:addi x2,x5,16 
-				   sb x3,0(x5)
-			4.不能使用tab
-			5.所有字皆為小寫
-			6.不支援任何註解
-	4.machine_code.txt:
-		此檔案可有可無，為此程式執行後的結果，在資料夾底下一開始若沒有此檔案，則執行過後會自動生成一個
+This project implements a simple RISC-V assembly instruction translator in C++. It reads RISC-V assembly code, parses it, and converts each instruction into its corresponding 32-bit machine code representation.
 
-cpp內的變數名稱:
-	char ctemp[225]:char的temp，在讀檔的時候會使用
-	vector<string>code:在riscv_code中的code每行以string的形式儲存至vector中
-	bitset<32> mach_code:一個temp，在risc v轉換成machine code時會用到
-	map<string, unsigned long>label:儲存每個label的名子和PC(這裡的PC是0,1,2,....)
-	map<string, int> instruct_type:根據不同的instruction type分成
-		1. u type:lui,auipc
-		2.uj tupe:jal
-		3. i type:jalr,lb,lh,lv,lbn,lhu,addi,slti,sltiu,xori,ori,andi,slli,srli,srai
-		4.sb type:beq,bne,blt,bge,bltu,bgeu
-		5. s type:sb,sh,sv
-		6. r type:add,sub,sll,slt,sltu,xor,srl,sra,or,and
-	map<string, bitset<32> >ins_template:將instrution_set.txt中的32bits數字以及對應的operator存入map中
-						到時候在轉換的時候會以這個當做模板
+---
 
-程式執行階段:總共會做4件事情(function)分別為:
-	1.呼叫bulid_instruction_data()，把instruction_set.txt的資料儲存到instruction_type和ins_template中
-	2.呼叫build_register_data()，把register.txt中的資料儲存到registers中
-	3.呼叫readcode()，把rsicv_code的資料去除label後儲存到code中(++PC)，有label時把label名稱和label的PC儲存到label(map)中，
-	  單純只有label時PC不會增加
-	4.呼叫transfer_code():
-		在transfer_code這個function中，會先把每一行的code分成operator(type)和operand(stemp)並呼叫type_select()，
-		並且透過type去ins_template(map)中找到operator對應的32bits machine code 模板並存到mach_code中
-			在type_select中會根據剛剛切割的operator(type)去instruct_type(map)中找到對應的type類型並執行對應的function，
-			這六個function都會分別地去找instruction的rs1,rs2,rd,imm...(funct7,funct3,opcode則已經在讀檔的時候就處理好了)，
-			所有的function都是透過bitset來處理轉換machine code，function如下:
-				1. u type:
-					根據instruction找到simm[31:12]和rd並合併成一個數字，最後回傳這個數字
-				2.uj tupe:
-					根據instruction找到simm[20 | 10:1 | 11 | 19:12]和rd並合併成一個數字，最後回傳這個數字
-					*uj type的imm是(label.PC - current_ins.PC)*4		//ex:jal
-				3. i type:
-					根據instruction找到simm[11:0](分成有括弧和沒括弧兩種case下去找offset)、rs1和rd並合併成一個數字，最後回傳這個數字
-				4.sb type:
-					根據instruction找到simm[12 | 10:5]、rs2、rs1和simm[4:1 | 11]並合併成一個數字，最後回傳這個數字
-					*sb type的imm是(label.PC - current_ins.PC)*4		//ex:beq
-				5. s type:
-					根據instruction找到simm[11:5]、rs2、rs1和simm[4:0]並合併成一個數字，最後回傳這個數字
-				6. r type:
-					根據instruction找到rs2、rs1和rd1並合併成一個數字，最後回傳這個數字
+## Project Overview
 
-			這六個function都會回傳一個32bits的數字(machtemp)，接著再回傳machtemp | mach_code的結果(轉換過後的machine code)
-			*這邊的合併數字指的是把數字的每一bit放到對應的位置，最後會得到一個數字稱作合併(使用&,|,<<,>>來操作)
+The translator processes RISC-V assembly code and produces machine code in hexadecimal and binary formats, supporting multiple instruction types according to the RISC-V specification. The program reads input assembly code and outputs the encoded machine instructions into a file.
 
-		得到回傳回來的值(mach_code)就將結果寫入mach_code.txt中
-		重複上述動作來轉換每個code直到結束，結果都會一行一行儲存在mach_code中
+---
+
+## Key Features
+
+- **Supports Multiple Instruction Types:**  
+  The project implements encoding for all common RISC-V instruction formats:
+  - U-type (e.g., `lui`)
+  - UJ-type (e.g., `jal`)
+  - I-type (e.g., `addi`, `jalr`, `lb`)
+  - SB-type (e.g., `beq`)
+  - S-type (e.g., `sb`)
+  - R-type (e.g., `add`, `sub`)
+
+- **Label Resolution:**  
+  The program detects labels in the assembly code and calculates relative branch offsets for jump and branch instructions.
+
+- **Register Mapping:**  
+  Registers are mapped from symbolic names (e.g., `x0`, `ra`, `sp`) to their numerical encoding using an external register file.
+
+- **Instruction Templates:**  
+  Instruction formats and opcodes are loaded from external files (`instruction_set.txt`), allowing easy modification and extension.
+
+- **Binary and Hexadecimal Output:**  
+  Outputs machine instructions in both binary and hexadecimal representations alongside the original assembly code for easy verification.
+
+---
+
+## How It Works
+
+1. **Data Initialization:**  
+   - Reads instruction definitions and types from `instruction_set.txt`.
+   - Reads register definitions from `register.txt`.
+
+2. **Code Parsing:**  
+   - Reads assembly instructions from `riscv_code.txt`.
+   - Detects labels and stores their instruction indices for offset calculation.
+
+3. **Instruction Encoding:**  
+   - For each instruction, based on its type, parses operands.
+   - Encodes immediate values, register indices, and opcode fields using bit manipulation.
+   - Handles specific bit placements according to RISC-V encoding rules.
+
+4. **Output:**  
+   - Writes the encoded 32-bit machine code into `machine_code.txt` in both hexadecimal and binary forms.
+
+---
+
+
+# RISC-V Assembler Tool Usage and Explanation
+
+---
+
+## Required Files Before Running the Program
+
+1. **instruction_set.txt**  
+   - Contains instruction names (e.g., `add`, `addi`), a numeric type ID (1~6), and a 32-bit instruction template (with default zeros for fields like rd, rs1, rs2, imm).  
+   - The type ID determines which function will process the instruction.  
+   - The 32-bit template encodes fixed fields like `funct7`, `funct3`, and `opcode`. During execution, fields such as `rd`, `rs1`, `rs2`, and `imm` are calculated and combined with the template via bitwise OR to form the final machine code.
+
+Example:  
+	and: funct7:0000000, rs2=0, rs1=0, funct3=111, rd=0, opcode=0110011
+	Instruction: and x3,x4,x5
+	Encoded fields: rs1=00100, rs2=00101, rd=00011
+	Template: 00000000000000000111000000110011 (binary)
+	After OR: 00000000010100100111000110110011 (final machine code)
+
+2. **register.txt**  
+- Maps register names to register numbers.  
+- Includes all standard RARS registers (e.g., x0, x1, a0, t0, s0, etc.).  
+
+Example:  
+	x0 0
+	x1 1
+
+3. **riscv_code.txt**  
+- User input RISC-V assembly code file to be converted into machine code.  
+- Formatting rules:  
+  - Labels followed by colon and a space before instruction on same line (e.g., `loop: addi x2,x5,16`) or label alone on a line without trailing spaces (e.g., `loop:`).  
+  - Instructions must have a space between opcode and first operand; subsequent operands are comma-separated with no spaces (e.g., `addi x2,x5,16`, `sb x3,0(x5)`).  
+  - Tabs are not allowed.  
+  - All letters lowercase.  
+  - Comments are not supported.
+
+4. **machine_code.txt** (optional)  
+- Output file generated by the program containing the translated machine code.
+
+---
+
+## Key Variables
+
+| Variable                     | Description                                           |
+|------------------------------|-----------------------------------------------------|
+| `char ctemp[225]`            | Temp buffer for reading lines from files            |
+| `vector<string> code`        | Stores RISC-V instructions without labels           |
+| `bitset<32> mach_code`       | Temporary holder for machine code bits               |
+| `map<string, unsigned long> label` | Stores labels and their instruction addresses (PC) |
+| `map<string, int> instruct_type` | Maps instructions to types (1-6)                 |
+| `map<string, bitset<32>> ins_template` | Stores 32-bit instruction templates             |
+
+Instruction types mapped to IDs:
+
+| Type ID | Instruction Type | Examples                      |
+|---------|------------------|-------------------------------|
+| 1       | U-type           | `lui`, `auipc`                 |
+| 2       | UJ-type          | `jal`                         |
+| 3       | I-type           | `jalr`, `lb`, `addi`, ...     |
+| 4       | SB-type          | `beq`, `bne`, `blt`, ...      |
+| 5       | S-type           | `sb`, `sh`, `sw`              |
+| 6       | R-type           | `add`, `sub`, `and`, `or`     |
+
+---
+
+## Program Workflow
+
+1. **`build_instruction_data()`**  
+- Reads `instruction_set.txt` to populate `instruct_type` and `ins_template`.
+
+2. **`build_register_data()`**  
+- Reads `register.txt` to populate `registers`.
+
+3. **`readcode()`**  
+- Reads assembly code from `riscv_code.txt`.  
+- Extracts labels and instructions, stores labels in `label` map with PC values.  
+- Instructions without labels stored in `code` vector.
+
+4. **`transfer_code()`**  
+- For each instruction in `code`, splits into operator and operands.  
+- Finds corresponding 32-bit template from `ins_template`.  
+- Calls `type_select()` to dispatch to the correct encoding function based on instruction type:
+
+| Encoding Function | Instruction Type | Description                                         |
+|-------------------|------------------|---------------------------------------------------|
+| `type_u`          | U-type           | Encodes `simm[31:12]` and `rd`                    |
+| `type_uj`         | UJ-type          | Encodes `simm[20|10:1|11|19:12]` and `rd` (offset calculation: `(label.PC - current.PC) * 4`) |
+| `type_i`          | I-type           | Encodes `simm[11:0]`, `rs1`, and `rd`             |
+| `type_sb`         | SB-type          | Encodes `simm[12|10:5]`, `rs2`, `rs1`, `simm[4:1|11]` (offset calculation: `(label.PC - current.PC) * 4`) |
+| `type_s`          | S-type           | Encodes `simm[11:5]`, `rs2`, `rs1`, `simm[4:0]`   |
+| `type_r`          | R-type           | Encodes `rs2`, `rs1`, and `rd`                     |
+
+- Each function returns a 32-bit value with the encoded fields, which is OR’ed with the instruction template to produce the final machine code.
+
+- The resulting machine code is output line-by-line to `machine_code.txt`.
+
+---
+
+## Bit Manipulation Details
+
+- The assembler uses bitwise AND, OR, shifts (`&`, `|`, `<<`, `>>`) to correctly position fields in the 32-bit instruction word.
+
+---
+
+## Summary
+
+This tool assembles RISC-V assembly code into machine code by:
+
+- Parsing instructions and labels.  
+- Calculating offsets for jumps and branches.  
+- Encoding instructions into binary form using templates and field calculations.  
+- Outputting the final machine code to a file.
+
+---
+
+*Refer to the source code comments for deeper insights and implementation specifics.*
